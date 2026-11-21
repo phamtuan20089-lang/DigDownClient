@@ -111,10 +111,10 @@ public class ClickGuiScreen extends Screen {
         strokeRounded(g, x, y, x + w, y + h, WINDOW_R, mul(ACCENT));
 
         // Thanh trên: tên + tab
-        g.drawString(font, "DIGDOWN", x + 12, y + 9, mul(ACCENT));
-        int tx = x + 14 + font.width("DIGDOWN") + 12;
+        drawText(g, font, "DIGDOWN", x + 12, y + 9, mul(ACCENT));
+        int tx = x + 14 + textWidth(font, "DIGDOWN") + 12;
         for (Tab tab : Tab.values()) {
-            int tw = font.width(tab.label) + 14;
+            int tw = textWidth(font, tab.label) + 14;
             boolean active = tab == currentTab;
             boolean hover = inside(mouseX, mouseY, tx, y + 4, tx + tw, y + HEADER - 3);
             if (active || hover) {
@@ -123,7 +123,7 @@ public class ClickGuiScreen extends Screen {
             if (active) {
                 strokeRounded(g, tx, y + 4, tx + tw, y + HEADER - 3, CARD_R, mul(ACCENT));
             }
-            g.drawString(font, tab.label, tx + 7, y + 9, mul(active ? TEXT : DIM));
+            drawText(g, font, tab.label, tx + 7, y + 9, mul(active ? TEXT : DIM));
             final Tab target = tab;
             zones.add(new Zone(tx, y + 4, tx + tw, y + HEADER - 3, () -> {
                 currentTab = target;
@@ -134,7 +134,7 @@ public class ClickGuiScreen extends Screen {
 
         // Nút đóng
         int closeX = x + w - 20;
-        g.drawString(font, "x", closeX + 4, y + 9, mul(DIM));
+        drawText(g, font, "x", closeX + 4, y + 9, mul(DIM));
         zones.add(new Zone(closeX, y + 4, closeX + 14, y + HEADER - 3, () -> {
             playClick(0.8F);
             onClose();
@@ -170,7 +170,7 @@ public class ClickGuiScreen extends Screen {
                 if (selected) {
                     strokeRounded(g, rx1, rowY, rx2, rowY + 20, CARD_R, mul(ACCENT));
                 }
-                g.drawString(font, c.label().toUpperCase(Locale.ROOT), rx1 + 9, rowY + 6,
+                drawText(g, font, c.label().toUpperCase(Locale.ROOT), rx1 + 9, rowY + 6,
                         mul(selected ? TEXT : DIM));
                 final Module.Category target = c;
                 zones.add(new Zone(rx1, rowY, rx2, rowY + 20, () -> {
@@ -219,8 +219,8 @@ public class ClickGuiScreen extends Screen {
             strokeRounded(g, x, y, x + w, y + CARD_H, CARD_R, mul(ACCENT));
         }
 
-        g.drawString(font, card.name(), x + 8, y + 6, mul(TEXT));
-        g.drawString(font, font.plainSubstrByWidth(card.desc(), w - 52), x + 8, y + 18, mul(DIM));
+        drawText(g, font, card.name(), x + 8, y + 6, mul(TEXT));
+        drawText(g, font, fit(font, card.desc(), w - 52), x + 8, y + 18, mul(DIM));
 
         // Công tắc bo tròn
         int sx = x + w - 30;
@@ -269,6 +269,28 @@ public class ClickGuiScreen extends Screen {
     }
 
     // ---------------------------------------------------------------- tiện ích
+
+    // ---------------------------------------------------------------- chữ (font DigDown)
+
+    private static void drawText(GuiGraphics g, Font font, String s, int x, int y, int color) {
+        g.drawString(font, UiFont.text(s), x, y, color);
+    }
+
+    private static int textWidth(Font font, String s) {
+        return font.width(UiFont.text(s));
+    }
+
+    /** Cắt chuỗi và thêm "..." nếu quá rộng. */
+    private static String fit(Font font, String s, int maxWidth) {
+        if (textWidth(font, s) <= maxWidth) {
+            return s;
+        }
+        String cut = s;
+        while (!cut.isEmpty() && textWidth(font, cut + "...") > maxWidth) {
+            cut = cut.substring(0, cut.length() - 1);
+        }
+        return cut + "...";
+    }
 
     /** Tiếng tick của giao diện. pitch cao = tiếng cao hơn. Muốn đổi âm thanh: thay SoundEvents.UI_BUTTON_CLICK. */
     private static void playClick(float pitch) {

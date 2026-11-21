@@ -43,17 +43,17 @@ public final class DigDownHud {
         int lineHeight = mc.font.lineHeight + 2;
 
         if (showName) {
-            graphics.drawString(mc.font, "DigDown Client", x, y, ACCENT);
+            graphics.drawString(mc.font, UiFont.text("DigDown Client"), x, y, ACCENT);
             y += lineHeight;
         }
         if (showFps) {
-            graphics.drawString(mc.font, "FPS: " + mc.getFps(), x, y, WHITE);
+            graphics.drawString(mc.font, UiFont.text("FPS: " + mc.getFps()), x, y, WHITE);
             y += lineHeight;
         }
         if (showCoords) {
             String coords = String.format(Locale.ROOT, "XYZ: %.1f / %.1f / %.1f",
                     mc.player.getX(), mc.player.getY(), mc.player.getZ());
-            graphics.drawString(mc.font, coords, x, y, WHITE);
+            graphics.drawString(mc.font, UiFont.text(coords), x, y, WHITE);
         }
     }
 }

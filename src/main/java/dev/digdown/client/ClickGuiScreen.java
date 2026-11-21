@@ -52,15 +52,15 @@ public class ClickGuiScreen extends Screen {
     private static final long ANIM_MS = 220L;
 
     // Kích thước cửa sổ (pixel GUI). Kéo góc dưới bên phải để đổi kích cỡ, kéo thanh trên để di chuyển.
-    private static final int DEFAULT_W = 420;
-    private static final int DEFAULT_H = 250;
-    private static final int MIN_W = 300;
-    private static final int MIN_H = 180;
+    private static final int DEFAULT_W = 280;
+    private static final int DEFAULT_H = 180;
+    private static final int MIN_W = 220;
+    private static final int MIN_H = 150;
     private static final int GRIP = 14; // vùng kéo ở góc dưới bên phải
 
     // Màu viền
-    private static final int WINDOW_BORDER = 0xFF3E3358;
-    private static final int CARD_BORDER = 0xFF2E2446;
+    private static final int WINDOW_BORDER = 0xFF463A62;
+    private static final int CARD_BORDER = 0xFF352B4F;
 
     // Tốc độ hoạt ảnh: càng lớn càng nhanh, khoảng 0,15 đến 0,3 giây là xong
     private static final float K_HOVER = 14F;  // rê chuột
@@ -123,11 +123,11 @@ public class ClickGuiScreen extends Screen {
     private Module openedModule; // module đang mở tùy chọn con (null = không mở)
     private EditBox searchBox;
 
-    // Kích thước và vị trí cửa sổ, nhớ trong phiên chơi (posX/posY = -1 nghĩa là chưa đặt, sẽ căn giữa)
-    private static int winW = DEFAULT_W;
-    private static int winH = DEFAULT_H;
-    private static int posX = -1;
-    private static int posY = -1;
+    // Kích thước và vị trí cửa sổ, được lưu vào config (posX/posY = -1 nghĩa là chưa đặt, sẽ căn giữa)
+    static int winW = DEFAULT_W;
+    static int winH = DEFAULT_H;
+    static int posX = -1;
+    static int posY = -1;
 
     // Trạng thái kéo
     private boolean resizing;
@@ -553,6 +553,7 @@ public class ClickGuiScreen extends Screen {
         if (interactive && a > 0.5F) {
             zones.add(new Zone(x1, y1, x2, y2, () -> {
                 card.toggle().run();
+                ConfigManager.save();
                 props.put(new Prop(key, "pulse"), 1F);
                 playClick(card.state().getAsBoolean() ? 1.3F : 0.8F);
             }));
@@ -604,6 +605,7 @@ public class ClickGuiScreen extends Screen {
             if (hitGrip(mx, my)) {
                 winW = DEFAULT_W;
                 winH = DEFAULT_H;
+                ConfigManager.save();
                 playClick(0.9F);
                 return true;
             }
@@ -643,6 +645,7 @@ public class ClickGuiScreen extends Screen {
         if (resizing || moving) {
             resizing = false;
             moving = false;
+            ConfigManager.save();
             return true;
         }
         return super.mouseReleased(event);
@@ -762,28 +765,43 @@ public class ClickGuiScreen extends Screen {
         return px >= x1 && px < x2 && py >= y1 && py < y2;
     }
 
-    /** Khoảng thụt vào của hàng thứ i (tính từ mép trên) để tạo góc bo bán kính r. */
-    private static int inset(int r, int i) {
-        double dy = r - i - 0.5;
-        return r - (int) Math.round(Math.sqrt(r * r - dy * dy));
-    }
-
-    /** Hình chữ nhật đặc bo góc. */
+    /** Hình chữ nhật đặc bo góc. Mép tròn được làm mịn bằng cách pha màu ở các pixel biên. */
     private static void fillRounded(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int color) {
         r = Math.min(r, Math.min((x2 - x1) / 2, (y2 - y1) / 2));
         if (r <= 0) {
             g.fill(x1, y1, x2, y2, color);
             return;
         }
-        for (int i = 0; i < r; i++) {
-            int in = inset(r, i);
-            g.fill(x1 + in, y1 + i, x2 - in, y1 + i + 1, color);
-            g.fill(x1 + in, y2 - i - 1, x2 - in, y2 - i, color);
-        }
         g.fill(x1, y1 + r, x2, y2 - r, color);
+        for (int i = 0; i < r; i++) {
+            double edge = cornerEdge(r, i + 0.5D);
+            fillCornerRow(g, x1, x2, y1 + i, edge, color);
+            fillCornerRow(g, x1, x2, y2 - 1 - i, edge, color);
+        }
     }
 
-    /** Viền 1 pixel bo góc (không tô phần bên trong). */
+    /** Khoảng cách từ mép ngoài tới biên tròn ở một hàng của góc bán kính r. cy là tâm hàng tính từ mép. */
+    private static double cornerEdge(double r, double cy) {
+        double dy = r - cy;
+        return r - Math.sqrt(Math.max(0D, r * r - dy * dy));
+    }
+
+    /** Vẽ một hàng pixel của góc. Pixel nằm trên biên tròn được pha độ trong suốt theo phần nằm trong hình. */
+    private static void fillCornerRow(GuiGraphics g, int x1, int x2, int y, double edge, int color) {
+        int p = (int) Math.floor(edge);
+        int full = (int) Math.ceil(edge);
+        double cov = full - edge;
+        if (cov > 0.02D) {
+            int partial = withAlpha(color, (float) cov);
+            g.fill(x1 + p, y, x1 + p + 1, y + 1, partial);
+            g.fill(x2 - 1 - p, y, x2 - p, y + 1, partial);
+        }
+        if (x2 - full > x1 + full) {
+            g.fill(x1 + full, y, x2 - full, y + 1, color);
+        }
+    }
+
+    /** Viền 1 pixel bo góc. Các pixel ở góc được pha độ trong suốt nên đường viền cong mượt. */
     private static void strokeRounded(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int color) {
         r = Math.min(r, Math.min((x2 - x1) / 2, (y2 - y1) / 2));
         if (r <= 0) {
@@ -793,20 +811,31 @@ public class ClickGuiScreen extends Screen {
             g.fill(x2 - 1, y1, x2, y2, color);
             return;
         }
-        int edge = inset(r, 0);
-        g.fill(x1 + edge, y1, x2 - edge, y1 + 1, color);
-        g.fill(x1 + edge, y2 - 1, x2 - edge, y2, color);
-        for (int i = 1; i < r; i++) {
-            int cur = inset(r, i);
-            int wid = Math.max(1, inset(r, i - 1) - cur);
-            // góc trên
-            g.fill(x1 + cur, y1 + i, x1 + cur + wid, y1 + i + 1, color);
-            g.fill(x2 - cur - wid, y1 + i, x2 - cur, y1 + i + 1, color);
-            // góc dưới
-            g.fill(x1 + cur, y2 - i - 1, x1 + cur + wid, y2 - i, color);
-            g.fill(x2 - cur - wid, y2 - i - 1, x2 - cur, y2 - i, color);
-        }
+        g.fill(x1 + r, y1, x2 - r, y1 + 1, color);
+        g.fill(x1 + r, y2 - 1, x2 - r, y2, color);
         g.fill(x1, y1 + r, x1 + 1, y2 - r, color);
         g.fill(x2 - 1, y1 + r, x2, y2 - r, color);
+        double ri = r - 1D;
+        for (int i = 0; i < r; i++) {
+            double cy = i + 0.5D;
+            double dy = r - cy;
+            double outer = r - Math.sqrt(Math.max(0D, r * r - dy * dy));
+            double inner = r - Math.sqrt(Math.max(0D, ri * ri - dy * dy));
+            strokeCornerRow(g, x1, x2, y1 + i, outer, inner, color);
+            strokeCornerRow(g, x1, x2, y2 - 1 - i, outer, inner, color);
+        }
+    }
+
+    /** Vẽ phần viền của một hàng góc, nằm giữa biên ngoài và biên trong. Bên phải đối xứng bên trái. */
+    private static void strokeCornerRow(GuiGraphics g, int x1, int x2, int y, double outer, double inner, int color) {
+        for (int c = (int) Math.floor(outer); c < Math.ceil(inner); c++) {
+            double cov = Math.min(c + 1D, inner) - Math.max((double) c, outer);
+            if (cov <= 0.02D) {
+                continue;
+            }
+            int pixel = withAlpha(color, (float) Math.min(1D, cov));
+            g.fill(x1 + c, y, x1 + c + 1, y + 1, pixel);
+            g.fill(x2 - 1 - c, y, x2 - c, y + 1, pixel);
+        }
     }
 }

@@ -51,6 +51,17 @@ public class ClickGuiScreen extends Screen {
     // Thời gian hoạt ảnh mở menu (mili giây)
     private static final long ANIM_MS = 220L;
 
+    // Kích thước cửa sổ (pixel GUI). Kéo góc dưới bên phải để đổi kích cỡ, kéo thanh trên để di chuyển.
+    private static final int DEFAULT_W = 420;
+    private static final int DEFAULT_H = 250;
+    private static final int MIN_W = 300;
+    private static final int MIN_H = 180;
+    private static final int GRIP = 14; // vùng kéo ở góc dưới bên phải
+
+    // Màu viền
+    private static final int WINDOW_BORDER = 0xFF3E3358;
+    private static final int CARD_BORDER = 0xFF2E2446;
+
     // Tốc độ hoạt ảnh: càng lớn càng nhanh, khoảng 0,15 đến 0,3 giây là xong
     private static final float K_HOVER = 14F;  // rê chuột
     private static final float K_TOGGLE = 16F; // bật/tắt, đổi tab, đổi danh mục
@@ -112,6 +123,28 @@ public class ClickGuiScreen extends Screen {
     private Module openedModule; // module đang mở tùy chọn con (null = không mở)
     private EditBox searchBox;
 
+    // Kích thước và vị trí cửa sổ, nhớ trong phiên chơi (posX/posY = -1 nghĩa là chưa đặt, sẽ căn giữa)
+    private static int winW = DEFAULT_W;
+    private static int winH = DEFAULT_H;
+    private static int posX = -1;
+    private static int posY = -1;
+
+    // Trạng thái kéo
+    private boolean resizing;
+    private boolean moving;
+    private double dragStartX;
+    private double dragStartY;
+    private int dragStartW;
+    private int dragStartH;
+    private int dragOffX;
+    private int dragOffY;
+
+    // Vùng cửa sổ đã vẽ ở khung hình trước, dùng để nhận biết chuột đang ở góc kéo hay thanh trên
+    private int lastX;
+    private int lastY;
+    private int lastW;
+    private int lastH;
+
     // ---- hoạt ảnh
     private final Map<Prop, Float> props = new HashMap<>(); // giá trị hiện tại của từng thuộc tính
     private Map<Object, Card> alive = new LinkedHashMap<>(); // phần tử đã vẽ khung trước, để mờ dần khi biến mất
@@ -161,10 +194,18 @@ public class ClickGuiScreen extends Screen {
         fade = Math.min(1.0F, t * 1.6F);
         float scale = 0.85F + 0.15F * easeOutBack(t);
 
-        int w = Math.min(width - 16, 420);
-        int h = Math.min(height - 16, 250);
-        int x = (width - w) / 2;
-        int y = (height - h) / 2;
+        int w = Math.min(width - 16, winW);
+        int h = Math.min(height - 16, winH);
+        int x = posX < 0 ? (width - w) / 2 : posX;
+        int y = posY < 0 ? (height - h) / 2 : posY;
+        x = clamp(x, 0, width - w);
+        y = clamp(y, 0, height - h);
+        posX = x;
+        posY = y;
+        lastX = x;
+        lastY = y;
+        lastW = w;
+        lastH = h;
 
         // Phóng to từ giữa cửa sổ
         Matrix3x2fStack pose = g.pose();
@@ -175,9 +216,16 @@ public class ClickGuiScreen extends Screen {
         pose.scale(scale, scale);
         pose.translate(-pivotX, -pivotY);
 
-        // Khung cửa sổ bo góc
+        // Bóng đổ mềm quanh cửa sổ
+        for (int i = 4; i >= 1; i--) {
+            fillRounded(g, x - i, y - i + 3, x + w + i, y + h + i + 3, WINDOW_R + i,
+                    mul(withAlpha(0xFF000000, 0.12F - i * 0.02F)));
+        }
+
+        // Khung cửa sổ bo góc: viền mờ và một đường sáng mỏng bên trong
         fillRounded(g, x, y, x + w, y + h, WINDOW_R, mul(BG));
-        strokeRounded(g, x, y, x + w, y + h, WINDOW_R, mul(ACCENT));
+        strokeRounded(g, x, y, x + w, y + h, WINDOW_R, mul(WINDOW_BORDER));
+        strokeRounded(g, x + 1, y + 1, x + w - 1, y + h - 1, WINDOW_R - 1, mul(withAlpha(0xFFFFFFFF, 0.06F)));
 
         // ---- Thanh trên: logo + tên + tab + nút đóng
         fillRounded(g, x + 10, y + 6, x + 28, y + 24, 9, mul(ACCENT));
@@ -222,7 +270,7 @@ public class ClickGuiScreen extends Screen {
 
         // ---- Thân
         int bodyTop = y + HEADER + 1;
-        int bottom = y + h - 8;
+        int bottom = y + h - 14;
         boolean modulesTab = currentTab == Tab.MODULES;
         int contentLeft = x + 10;
         int contentRight = x + w - 10;
@@ -311,6 +359,7 @@ public class ClickGuiScreen extends Screen {
             boolean focused = searchBox != null && searchBox.isFocused();
             float focusT = tween("search", "focus", focused ? 1F : 0F, K_TOGGLE);
             fillRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(CARD));
+            strokeRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(CARD_BORDER));
             if (focusT > 0.02F) {
                 strokeRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R,
                         mul(withAlpha(ACCENT, focusT)));
@@ -439,6 +488,15 @@ public class ClickGuiScreen extends Screen {
         }
         alive = next;
 
+        // Góc kéo đổi kích cỡ: ba chấm chéo ở góc dưới bên phải, sáng lên khi rê chuột vào
+        float gripT = tween("grip", "hov", hitGrip(mouseX, mouseY) ? 1F : 0F, K_HOVER);
+        int gripColor = mul(lerpColor(DIM, ACCENT, gripT));
+        for (int i = 0; i < 3; i++) {
+            int gx = x + w - 4 - i * 3;
+            int gy = y + h - 4 - i * 3;
+            g.fill(gx, gy, gx + 2, gy + 2, gripColor);
+        }
+
         pose.popMatrix();
         super.render(g, mouseX, mouseY, partialTick);
     }
@@ -467,6 +525,9 @@ public class ClickGuiScreen extends Screen {
         if (pulse * a > 0.02F) {
             fillRounded(g, x1, y1, x2, y2, CARD_R, mul(withAlpha(ACCENT, a * pulse * 0.12F)));
         }
+
+        // Viền mờ của thẻ
+        strokeRounded(g, x1, y1, x2, y2, CARD_R, mul(withAlpha(CARD_BORDER, a)));
 
         // Viền sáng: hiện dần khi bật, nháy khi vừa bấm
         float ring = Math.max(onT, pulse);
@@ -513,6 +574,14 @@ public class ClickGuiScreen extends Screen {
         }
         double mx = event.x();
         double my = event.y();
+        if (event.button() == 0 && hitGrip(mx, my)) {
+            resizing = true;
+            dragStartX = mx;
+            dragStartY = my;
+            dragStartW = lastW;
+            dragStartH = lastH;
+            return true;
+        }
         if (event.button() == 0) {
             for (Zone zone : zones) {
                 if (zone.contains(mx, my)) {
@@ -523,7 +592,21 @@ public class ClickGuiScreen extends Screen {
                     return true;
                 }
             }
+            // Kéo thanh trên (chỗ trống, không phải tab hay nút đóng) để di chuyển cửa sổ
+            if (hitHeader(mx, my)) {
+                moving = true;
+                dragOffX = (int) (mx - lastX);
+                dragOffY = (int) (my - lastY);
+                return true;
+            }
         } else if (event.button() == 1) {
+            // Chuột phải vào góc kéo: đặt lại kích cỡ mặc định
+            if (hitGrip(mx, my)) {
+                winW = DEFAULT_W;
+                winH = DEFAULT_H;
+                playClick(0.9F);
+                return true;
+            }
             for (Zone zone : rightZones) {
                 if (zone.contains(mx, my)) {
                     if (searchBox != null) {
@@ -535,6 +618,34 @@ public class ClickGuiScreen extends Screen {
             }
         }
         return super.mouseClicked(event, doubleClick);
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (resizing) {
+            // Giữ nguyên góc trên bên trái, chỉ kéo góc dưới bên phải; không cho cửa sổ tràn khỏi màn hình
+            int maxW = Math.max(MIN_W, Math.min(width - 16, width - posX - 8));
+            int maxH = Math.max(MIN_H, Math.min(height - 16, height - posY - 8));
+            winW = clamp((int) (dragStartW + (event.x() - dragStartX)), MIN_W, maxW);
+            winH = clamp((int) (dragStartH + (event.y() - dragStartY)), MIN_H, maxH);
+            return true;
+        }
+        if (moving) {
+            posX = clamp((int) (event.x() - dragOffX), 0, width - lastW);
+            posY = clamp((int) (event.y() - dragOffY), 0, height - lastH);
+            return true;
+        }
+        return super.mouseDragged(event, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (resizing || moving) {
+            resizing = false;
+            moving = false;
+            return true;
+        }
+        return super.mouseReleased(event);
     }
 
     // ---------------------------------------------------------------- hoạt ảnh
@@ -580,6 +691,21 @@ public class ClickGuiScreen extends Screen {
             out |= (Math.round(ca + (cb - ca) * k) & 0xFF) << shift;
         }
         return out;
+    }
+
+    /** Chuột có nằm trong góc kéo đổi kích cỡ không (dựa trên khung hình vừa vẽ). */
+    private boolean hitGrip(double mx, double my) {
+        return mx >= lastX + lastW - GRIP && mx < lastX + lastW
+                && my >= lastY + lastH - GRIP && my < lastY + lastH;
+    }
+
+    /** Chuột có nằm trên thanh trên của cửa sổ không. */
+    private boolean hitHeader(double mx, double my) {
+        return mx >= lastX + 6 && mx < lastX + lastW - 6 && my >= lastY && my < lastY + HEADER;
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
     }
 
     // ---------------------------------------------------------------- chữ (font DigDown)

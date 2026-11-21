@@ -87,7 +87,7 @@ public abstract class Module {
         return enabled;
     }
 
-    /** Các tùy chọn con của module (hiện nút bánh răng trong Click GUI nếu danh sách này không rỗng). */
+    /** Các tùy chọn con của module (click phải vào thẻ module trong Click GUI để mở, nếu danh sách này không rỗng). */
     public List<BoolSetting> getSettings() {
         return Collections.unmodifiableList(settings);
     }

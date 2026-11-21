@@ -18,15 +18,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 
 /**
- * Click GUI của DigDown: tab trên cùng, danh mục bên trái, thanh tìm kiếm, thẻ module có nút
- * bánh răng (mở tùy chọn con) và công tắc. Góc bo tròn, âm thanh tick, hoạt ảnh mở menu.
- * Vẽ bằng GuiGraphics, chỉ dùng click trái nên dùng được bằng cảm ứng trên Zalith/Pojav.
+ * Click GUI của DigDown: tab trên cùng, danh mục bên trái, thanh tìm kiếm, thẻ module có công tắc.
+ * Click trái vào thẻ để bật/tắt module. Click phải vào thẻ có tùy chọn con để mở tùy chọn đó.
+ * Góc bo tròn, âm thanh tick, hoạt ảnh mở menu. Vẽ bằng GuiGraphics.
  */
 public class ClickGuiScreen extends Screen {
     private static final int BG = 0xF010091A;
     private static final int CARD = 0xFF1F1632;
     private static final int CARD_HOVER = 0xFF2B2043;
-    private static final int BUTTON = 0xFF2E2347;
     private static final int LINE = 0xFF362A50;
     private static final int ACCENT = 0xFFFF5FB8;
     private static final int TEXT = 0xFFFFFFFF;
@@ -64,7 +63,7 @@ public class ClickGuiScreen extends Screen {
         }
     }
 
-    /** Một thẻ có công tắc. settingsOf != null thì thẻ có nút bánh răng mở tùy chọn con của module đó. */
+    /** Một thẻ có công tắc. settingsOf != null thì click phải vào thẻ sẽ mở tùy chọn con của module đó. */
     private record Card(String name, String desc, BooleanSupplier state, Runnable toggle, Module settingsOf) {
     }
 
@@ -73,6 +72,7 @@ public class ClickGuiScreen extends Screen {
     private static Module.Category currentCategory = Module.Category.MOVEMENT;
 
     private final List<Zone> zones = new ArrayList<>();
+    private final List<Zone> rightZones = new ArrayList<>(); // vùng click phải (mở tùy chọn con)
     private final long openedAt = System.currentTimeMillis();
     private float fade = 1.0F;
     private Module openedModule; // module đang xem tùy chọn con (null = xem danh sách)
@@ -110,6 +110,7 @@ public class ClickGuiScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         zones.clear();
+        rightZones.clear();
         Font font = Minecraft.getInstance().font;
 
         // Tiến độ hoạt ảnh: 0 -> 1
@@ -328,25 +329,7 @@ public class ClickGuiScreen extends Screen {
         // Công tắc bo tròn
         int sx = x + w - 30;
         int sy = y + (CARD_H - 10) / 2;
-
-        // Nút bánh răng (chỉ module có tùy chọn con). Thêm vùng bấm trước vùng của cả thẻ.
         int textRight = sx - 6;
-        if (card.settingsOf() != null) {
-            int gx = sx - 20;
-            int gy = y + (CARD_H - 12) / 2;
-            boolean gearHover = inside(mouseX, mouseY, gx, gy, gx + 12, gy + 12);
-            fillRounded(g, gx, gy, gx + 12, gy + 12, 3, mul(gearHover ? ACCENT : BUTTON));
-            int bar = gearHover ? TEXT : DIM;
-            g.fill(gx + 3, gy + 3, gx + 9, gy + 4, mul(bar));
-            g.fill(gx + 3, gy + 6, gx + 9, gy + 7, mul(bar));
-            g.fill(gx + 3, gy + 9, gx + 9, gy + 10, mul(bar));
-            final Module target = card.settingsOf();
-            zones.add(new Zone(gx - 1, gy - 1, gx + 13, gy + 13, () -> {
-                openedModule = target;
-                playClick(1.1F);
-            }));
-            textRight = gx - 6;
-        }
 
         drawText(g, font, card.name(), x + 8, y + 7, mul(TEXT));
         drawText(g, font, fit(font, card.desc(), textRight - (x + 8)), x + 8, y + 19, mul(DIM));
@@ -360,6 +343,15 @@ public class ClickGuiScreen extends Screen {
             card.toggle().run();
             playClick(card.state().getAsBoolean() ? 1.3F : 0.8F);
         }));
+
+        // Click phải vào thẻ có tùy chọn con: mở tùy chọn đó
+        if (card.settingsOf() != null) {
+            final Module target = card.settingsOf();
+            rightZones.add(new Zone(x, y, x + w, y + CARD_H, () -> {
+                openedModule = target;
+                playClick(1.1F);
+            }));
+        }
     }
 
     @Override
@@ -368,10 +360,20 @@ public class ClickGuiScreen extends Screen {
         if (animating()) {
             return true;
         }
+        double mx = event.x();
+        double my = event.y();
         if (event.button() == 0) {
-            double mx = event.x();
-            double my = event.y();
             for (Zone zone : zones) {
+                if (zone.contains(mx, my)) {
+                    if (searchBox != null) {
+                        searchBox.setFocused(false);
+                    }
+                    zone.action().run();
+                    return true;
+                }
+            }
+        } else if (event.button() == 1) {
+            for (Zone zone : rightZones) {
                 if (zone.contains(mx, my)) {
                     if (searchBox != null) {
                         searchBox.setFocused(false);

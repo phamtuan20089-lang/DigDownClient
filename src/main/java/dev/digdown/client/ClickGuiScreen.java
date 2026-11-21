@@ -39,8 +39,8 @@ public class ClickGuiScreen extends Screen {
     private static final int BAR_H = 16;
 
     // Độ bo góc (pixel)
-    private static final int WINDOW_R = 8;
-    private static final int CARD_R = 4;
+    private static final int WINDOW_R = 14;
+    private static final int CARD_R = 8;
 
     // Thời gian hoạt ảnh mở menu (mili giây)
     private static final long ANIM_MS = 220L;
@@ -137,7 +137,7 @@ public class ClickGuiScreen extends Screen {
         strokeRounded(g, x, y, x + w, y + h, WINDOW_R, mul(ACCENT));
 
         // ---- Thanh trên: logo + tên + tab + nút đóng
-        fillRounded(g, x + 10, y + 6, x + 28, y + 24, 5, mul(ACCENT));
+        fillRounded(g, x + 10, y + 6, x + 28, y + 24, 9, mul(ACCENT));
         drawText(g, font, "D", x + 10 + (18 - textWidth(font, "D")) / 2, y + 11, mul(TEXT));
         drawText(g, font, "DIGDOWN", x + 34, y + 11, mul(TEXT));
 
@@ -163,7 +163,7 @@ public class ClickGuiScreen extends Screen {
         }
 
         int closeX = x + w - 22;
-        fillRounded(g, closeX, y + 8, closeX + 14, y + 22, 4,
+        fillRounded(g, closeX, y + 8, closeX + 14, y + 22, 7,
                 mul(inside(mouseX, mouseY, closeX, y + 8, closeX + 14, y + 22) ? CARD_HOVER : CARD));
         drawText(g, font, "x", closeX + (14 - textWidth(font, "x")) / 2, y + 11, mul(DIM));
         zones.add(new Zone(closeX, y + 8, closeX + 14, y + 22, () -> {
@@ -208,7 +208,7 @@ public class ClickGuiScreen extends Screen {
                 if (selected) {
                     strokeRounded(g, rx1, rowY, rx2, rowY + 22, CARD_R, mul(ACCENT));
                 }
-                fillRounded(g, rx1 + 8, rowY + 7, rx1 + 16, rowY + 15, 2, mul(selected ? ACCENT : DIM));
+                fillRounded(g, rx1 + 8, rowY + 7, rx1 + 16, rowY + 15, 4, mul(selected ? ACCENT : DIM));
                 drawText(g, font, c.label().toUpperCase(Locale.ROOT), rx1 + 22, rowY + 7,
                         mul(selected ? TEXT : DIM));
                 final Module.Category target = c;

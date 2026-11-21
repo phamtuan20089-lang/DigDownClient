@@ -5,16 +5,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.BooleanSupplier;
 
+import org.joml.Matrix3x2fStack;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
 
 /**
- * Click GUI của DigDown. Vẽ hoàn toàn bằng GuiGraphics (không cần thư viện ngoài),
- * nút to và chỉ dùng click trái nên dùng được bằng cảm ứng trên Zalith/Pojav.
+ * Click GUI của DigDown: góc bo tròn, âm thanh tick khi bấm, hoạt ảnh phóng to khi mở.
+ * Vẽ hoàn toàn bằng GuiGraphics, chỉ dùng click trái nên dùng được bằng cảm ứng trên Zalith/Pojav.
  */
 public class ClickGuiScreen extends Screen {
     private static final int BG = 0xF0150F22;
@@ -30,6 +34,13 @@ public class ClickGuiScreen extends Screen {
     private static final int SIDEBAR = 84;
     private static final int CARD_H = 30;
     private static final int GAP = 6;
+
+    // Độ bo góc (pixel). Tăng/giảm để bo nhiều/ít hơn.
+    private static final int WINDOW_R = 8;
+    private static final int CARD_R = 4;
+
+    // Thời gian hoạt ảnh mở menu (mili giây)
+    private static final long ANIM_MS = 220L;
 
     private enum Tab {
         MODULES("MODULES"),
@@ -58,9 +69,12 @@ public class ClickGuiScreen extends Screen {
     private static Module.Category currentCategory = Module.Category.MOVEMENT;
 
     private final List<Zone> zones = new ArrayList<>();
+    private final long openedAt = System.currentTimeMillis();
+    private float fade = 1.0F;
 
     public ClickGuiScreen() {
         super(Component.literal("DigDown"));
+        playClick(1.5F); // tiếng tick khi mở menu
     }
 
     @Override
@@ -73,40 +87,60 @@ public class ClickGuiScreen extends Screen {
         zones.clear();
         Font font = Minecraft.getInstance().font;
 
+        // Tiến độ hoạt ảnh: 0 -> 1
+        float t = Math.min(1.0F, (System.currentTimeMillis() - openedAt) / (float) ANIM_MS);
+        fade = Math.min(1.0F, t * 1.6F);
+        float scale = 0.85F + 0.15F * easeOutBack(t);
+
         int w = Math.min(width - 16, 400);
         int h = Math.min(height - 16, 240);
         int x = (width - w) / 2;
         int y = (height - h) / 2;
 
-        // Khung cửa sổ
-        g.fill(x, y, x + w, y + h, BG);
-        outline(g, x, y, x + w, y + h, ACCENT);
+        // Phóng to từ giữa cửa sổ
+        Matrix3x2fStack pose = g.pose();
+        pose.pushMatrix();
+        float pivotX = x + w / 2.0F;
+        float pivotY = y + h / 2.0F;
+        pose.translate(pivotX, pivotY);
+        pose.scale(scale, scale);
+        pose.translate(-pivotX, -pivotY);
+
+        // Khung cửa sổ bo góc
+        fillRounded(g, x, y, x + w, y + h, WINDOW_R, mul(BG));
+        strokeRounded(g, x, y, x + w, y + h, WINDOW_R, mul(ACCENT));
 
         // Thanh trên: tên + tab
-        g.drawString(font, "DIGDOWN", x + 10, y + 9, ACCENT);
-        int tx = x + 12 + font.width("DIGDOWN") + 12;
+        g.drawString(font, "DIGDOWN", x + 12, y + 9, mul(ACCENT));
+        int tx = x + 14 + font.width("DIGDOWN") + 12;
         for (Tab tab : Tab.values()) {
             int tw = font.width(tab.label) + 14;
             boolean active = tab == currentTab;
             boolean hover = inside(mouseX, mouseY, tx, y + 4, tx + tw, y + HEADER - 3);
             if (active || hover) {
-                g.fill(tx, y + 4, tx + tw, y + HEADER - 3, active ? CARD_HOVER : CARD);
+                fillRounded(g, tx, y + 4, tx + tw, y + HEADER - 3, CARD_R, mul(active ? CARD_HOVER : CARD));
             }
             if (active) {
-                g.fill(tx, y + HEADER - 4, tx + tw, y + HEADER - 3, ACCENT);
+                strokeRounded(g, tx, y + 4, tx + tw, y + HEADER - 3, CARD_R, mul(ACCENT));
             }
-            g.drawString(font, tab.label, tx + 7, y + 9, active ? TEXT : DIM);
+            g.drawString(font, tab.label, tx + 7, y + 9, mul(active ? TEXT : DIM));
             final Tab target = tab;
-            zones.add(new Zone(tx, y + 4, tx + tw, y + HEADER - 3, () -> currentTab = target));
+            zones.add(new Zone(tx, y + 4, tx + tw, y + HEADER - 3, () -> {
+                currentTab = target;
+                playClick(1.0F);
+            }));
             tx += tw + 4;
         }
 
         // Nút đóng
-        int closeX = x + w - 18;
-        g.drawString(font, "x", closeX + 4, y + 9, DIM);
-        zones.add(new Zone(closeX, y + 4, closeX + 14, y + HEADER - 3, this::onClose));
+        int closeX = x + w - 20;
+        g.drawString(font, "x", closeX + 4, y + 9, mul(DIM));
+        zones.add(new Zone(closeX, y + 4, closeX + 14, y + HEADER - 3, () -> {
+            playClick(0.8F);
+            onClose();
+        }));
 
-        g.fill(x + 1, y + HEADER, x + w - 1, y + HEADER + 1, LINE);
+        g.fill(x + 6, y + HEADER, x + w - 6, y + HEADER + 1, mul(LINE));
 
         // Thân: thanh danh mục bên trái (tab Modules) + các thẻ
         int bodyTop = y + HEADER + 1;
@@ -124,38 +158,42 @@ public class ClickGuiScreen extends Screen {
                 currentCategory = cats.get(0);
             }
 
-            int cy = bodyTop + 8;
-            int rx1 = x + 6;
+            int rowY = bodyTop + 8;
+            int rx1 = x + 8;
             int rx2 = x + SIDEBAR - 4;
             for (Module.Category c : cats) {
                 boolean selected = c == currentCategory;
-                boolean hover = inside(mouseX, mouseY, rx1, cy, rx2, cy + 20);
+                boolean hover = inside(mouseX, mouseY, rx1, rowY, rx2, rowY + 20);
                 if (selected || hover) {
-                    g.fill(rx1, cy, rx2, cy + 20, selected ? CARD_HOVER : CARD);
+                    fillRounded(g, rx1, rowY, rx2, rowY + 20, CARD_R, mul(selected ? CARD_HOVER : CARD));
                 }
                 if (selected) {
-                    g.fill(rx1, cy, rx1 + 2, cy + 20, ACCENT);
+                    strokeRounded(g, rx1, rowY, rx2, rowY + 20, CARD_R, mul(ACCENT));
                 }
-                g.drawString(font, c.label().toUpperCase(Locale.ROOT), rx1 + 9, cy + 6, selected ? TEXT : DIM);
+                g.drawString(font, c.label().toUpperCase(Locale.ROOT), rx1 + 9, rowY + 6,
+                        mul(selected ? TEXT : DIM));
                 final Module.Category target = c;
-                zones.add(new Zone(rx1, cy, rx2, cy + 20, () -> currentCategory = target));
-                cy += 24;
+                zones.add(new Zone(rx1, rowY, rx2, rowY + 20, () -> {
+                    currentCategory = target;
+                    playClick(1.0F);
+                }));
+                rowY += 24;
             }
-            g.fill(x + SIDEBAR, bodyTop, x + SIDEBAR + 1, y + h - 1, LINE);
+            g.fill(x + SIDEBAR, bodyTop + 4, x + SIDEBAR + 1, y + h - 8, mul(LINE));
 
             contentLeft = x + SIDEBAR + 8;
             for (Module m : ModuleManager.byCategory(currentCategory)) {
                 cards.add(new Card(m.getName(), m.getDescription(), m::isEnabled, m::toggle));
             }
         } else {
-            contentLeft = x + 8;
+            contentLeft = x + 10;
             cards.addAll(hudCards());
         }
 
         // Lưới thẻ 2 cột (1 cột nếu màn hình hẹp)
-        int contentRight = x + w - 8;
+        int contentRight = x + w - 10;
         int top = bodyTop + 8;
-        int bottom = y + h - 6;
+        int bottom = y + h - 8;
         int cols = (contentRight - contentLeft) >= 240 ? 2 : 1;
         int cardW = (contentRight - contentLeft - GAP * (cols - 1)) / cols;
 
@@ -168,6 +206,7 @@ public class ClickGuiScreen extends Screen {
             drawCard(g, font, cards.get(i), cardX, cardY, cardW, mouseX, mouseY);
         }
 
+        pose.popMatrix();
         super.render(g, mouseX, mouseY, partialTick);
     }
 
@@ -175,22 +214,26 @@ public class ClickGuiScreen extends Screen {
         boolean on = card.state().getAsBoolean();
         boolean hover = inside(mouseX, mouseY, x, y, x + w, y + CARD_H);
 
-        g.fill(x, y, x + w, y + CARD_H, hover ? CARD_HOVER : CARD);
+        fillRounded(g, x, y, x + w, y + CARD_H, CARD_R, mul(hover ? CARD_HOVER : CARD));
         if (on) {
-            g.fill(x, y, x + 2, y + CARD_H, ACCENT);
+            strokeRounded(g, x, y, x + w, y + CARD_H, CARD_R, mul(ACCENT));
         }
 
-        g.drawString(font, card.name(), x + 8, y + 6, TEXT);
-        g.drawString(font, font.plainSubstrByWidth(card.desc(), w - 52), x + 8, y + 18, DIM);
+        g.drawString(font, card.name(), x + 8, y + 6, mul(TEXT));
+        g.drawString(font, font.plainSubstrByWidth(card.desc(), w - 52), x + 8, y + 18, mul(DIM));
 
-        // Công tắc
+        // Công tắc bo tròn
         int sx = x + w - 30;
         int sy = y + 10;
-        g.fill(sx, sy, sx + 22, sy + 10, on ? ACCENT : SWITCH_OFF);
+        fillRounded(g, sx, sy, sx + 22, sy + 10, 5, mul(on ? ACCENT : SWITCH_OFF));
         int knobX = on ? sx + 13 : sx + 1;
-        g.fill(knobX, sy + 1, knobX + 8, sy + 9, TEXT);
+        fillRounded(g, knobX, sy + 1, knobX + 8, sy + 9, 4, mul(TEXT));
 
-        zones.add(new Zone(x, y, x + w, y + CARD_H, card.toggle()));
+        // Bấm vào thẻ: đổi trạng thái rồi phát tiếng tick (cao khi bật, trầm khi tắt)
+        zones.add(new Zone(x, y, x + w, y + CARD_H, () -> {
+            card.toggle().run();
+            playClick(card.state().getAsBoolean() ? 1.3F : 0.8F);
+        }));
     }
 
     private static List<Card> hudCards() {
@@ -208,6 +251,10 @@ public class ClickGuiScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        // Bỏ qua click trong lúc menu đang phóng to (khoảng 0,2 giây)
+        if (System.currentTimeMillis() - openedAt < ANIM_MS) {
+            return true;
+        }
         if (event.button() == 0) {
             double mx = event.x();
             double my = event.y();
@@ -221,14 +268,80 @@ public class ClickGuiScreen extends Screen {
         return super.mouseClicked(event, doubleClick);
     }
 
+    // ---------------------------------------------------------------- tiện ích
+
+    /** Tiếng tick của giao diện. pitch cao = tiếng cao hơn. Muốn đổi âm thanh: thay SoundEvents.UI_BUTTON_CLICK. */
+    private static void playClick(float pitch) {
+        Minecraft.getInstance().getSoundManager()
+                .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, pitch));
+    }
+
+    /** Nhân độ trong suốt của màu với hệ số mờ dần của hoạt ảnh. */
+    private int mul(int argb) {
+        int a = (int) ((argb >>> 24) * fade);
+        if (a < 8) {
+            a = 8; // alpha quá thấp có thể bị game vẽ sai
+        }
+        return (a << 24) | (argb & 0x00FFFFFF);
+    }
+
+    /** Chuyển động "bật" nhẹ: vượt qua 1 một chút rồi về 1. */
+    private static float easeOutBack(float t) {
+        float c1 = 1.70158F;
+        float c3 = c1 + 1.0F;
+        float p = t - 1.0F;
+        return 1.0F + c3 * p * p * p + c1 * p * p;
+    }
+
     private static boolean inside(int px, int py, int x1, int y1, int x2, int y2) {
         return px >= x1 && px < x2 && py >= y1 && py < y2;
     }
 
-    private static void outline(GuiGraphics g, int x1, int y1, int x2, int y2, int color) {
-        g.fill(x1, y1, x2, y1 + 1, color);
-        g.fill(x1, y2 - 1, x2, y2, color);
-        g.fill(x1, y1, x1 + 1, y2, color);
-        g.fill(x2 - 1, y1, x2, y2, color);
+    /** Khoảng thụt vào của hàng thứ i (tính từ mép trên) để tạo góc bo bán kính r. */
+    private static int inset(int r, int i) {
+        double dy = r - i - 0.5;
+        return r - (int) Math.round(Math.sqrt(r * r - dy * dy));
+    }
+
+    /** Hình chữ nhật đặc bo góc. */
+    private static void fillRounded(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int color) {
+        r = Math.min(r, Math.min((x2 - x1) / 2, (y2 - y1) / 2));
+        if (r <= 0) {
+            g.fill(x1, y1, x2, y2, color);
+            return;
+        }
+        for (int i = 0; i < r; i++) {
+            int in = inset(r, i);
+            g.fill(x1 + in, y1 + i, x2 - in, y1 + i + 1, color);
+            g.fill(x1 + in, y2 - i - 1, x2 - in, y2 - i, color);
+        }
+        g.fill(x1, y1 + r, x2, y2 - r, color);
+    }
+
+    /** Viền 1 pixel bo góc (không tô phần bên trong). */
+    private static void strokeRounded(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int color) {
+        r = Math.min(r, Math.min((x2 - x1) / 2, (y2 - y1) / 2));
+        if (r <= 0) {
+            g.fill(x1, y1, x2, y1 + 1, color);
+            g.fill(x1, y2 - 1, x2, y2, color);
+            g.fill(x1, y1, x1 + 1, y2, color);
+            g.fill(x2 - 1, y1, x2, y2, color);
+            return;
+        }
+        int edge = inset(r, 0);
+        g.fill(x1 + edge, y1, x2 - edge, y1 + 1, color);
+        g.fill(x1 + edge, y2 - 1, x2 - edge, y2, color);
+        for (int i = 1; i < r; i++) {
+            int cur = inset(r, i);
+            int wid = Math.max(1, inset(r, i - 1) - cur);
+            // góc trên
+            g.fill(x1 + cur, y1 + i, x1 + cur + wid, y1 + i + 1, color);
+            g.fill(x2 - cur - wid, y1 + i, x2 - cur, y1 + i + 1, color);
+            // góc dưới
+            g.fill(x1 + cur, y2 - i - 1, x1 + cur + wid, y2 - i, color);
+            g.fill(x2 - cur - wid, y2 - i - 1, x2 - cur, y2 - i, color);
+        }
+        g.fill(x1, y1 + r, x1 + 1, y2 - r, color);
+        g.fill(x2 - 1, y1 + r, x2, y2 - r, color);
     }
 }

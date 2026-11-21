@@ -14,12 +14,6 @@ public final class DigDownHud {
     private static final int WHITE = 0xFFFFFFFF;
     private static final int ACCENT = 0xFFFF5FB8;
 
-    // Các công tắc này được Click GUI (tab HUD) bật/tắt
-    public static boolean enabled = true;
-    public static boolean showName = true;
-    public static boolean showFps = true;
-    public static boolean showCoords = true;
-
     private DigDownHud() {
     }
 
@@ -34,7 +28,8 @@ public final class DigDownHud {
 
     private static void render(GuiGraphics graphics, DeltaTracker tickCounter) {
         Minecraft mc = Minecraft.getInstance();
-        if (!enabled || mc.player == null) {
+        BuiltinModules.Hud hud = BuiltinModules.hud;
+        if (hud == null || !hud.isEnabled() || mc.player == null) {
             return;
         }
 
@@ -42,15 +37,15 @@ public final class DigDownHud {
         int y = 4;
         int lineHeight = mc.font.lineHeight + 2;
 
-        if (showName) {
+        if (hud.showName.get()) {
             graphics.drawString(mc.font, UiFont.text("DigDown Client"), x, y, ACCENT);
             y += lineHeight;
         }
-        if (showFps) {
+        if (hud.showFps.get()) {
             graphics.drawString(mc.font, UiFont.text("FPS: " + mc.getFps()), x, y, WHITE);
             y += lineHeight;
         }
-        if (showCoords) {
+        if (hud.showCoords.get()) {
             String coords = String.format(Locale.ROOT, "XYZ: %.1f / %.1f / %.1f",
                     mc.player.getX(), mc.player.getY(), mc.player.getZ());
             graphics.drawString(mc.font, UiFont.text(coords), x, y, WHITE);

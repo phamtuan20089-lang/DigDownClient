@@ -1,5 +1,9 @@
 package dev.digdown.client;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import net.minecraft.client.Minecraft;
 
 /** Lớp cơ sở cho mọi chức năng. Muốn thêm chức năng mới: kế thừa lớp này. */
@@ -8,7 +12,8 @@ public abstract class Module {
     public enum Category {
         MOVEMENT("Movement"),
         RENDER("Render"),
-        MISC("Misc");
+        MISC("Misc"),
+        CLIENT("Client");
 
         private final String label;
 
@@ -21,9 +26,43 @@ public abstract class Module {
         }
     }
 
+    /** Một tùy chọn bật/tắt. Dùng cho tùy chọn con của module và cho cài đặt chung của client. */
+    public static final class BoolSetting {
+        private final String name;
+        private final String description;
+        private boolean value;
+
+        public BoolSetting(String name, String description, boolean defaultValue) {
+            this.name = name;
+            this.description = description;
+            this.value = defaultValue;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public boolean get() {
+            return value;
+        }
+
+        public void set(boolean value) {
+            this.value = value;
+        }
+
+        public void toggle() {
+            value = !value;
+        }
+    }
+
     private final String name;
     private final String description;
     private final Category category;
+    private final List<BoolSetting> settings = new ArrayList<>();
     private boolean enabled;
 
     protected Module(String name, String description, Category category) {
@@ -46,6 +85,17 @@ public abstract class Module {
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    /** Các tùy chọn con của module (hiện nút bánh răng trong Click GUI nếu danh sách này không rỗng). */
+    public List<BoolSetting> getSettings() {
+        return Collections.unmodifiableList(settings);
+    }
+
+    protected BoolSetting addSetting(String name, String description, boolean defaultValue) {
+        BoolSetting setting = new BoolSetting(name, description, defaultValue);
+        settings.add(setting);
+        return setting;
     }
 
     public void toggle() {

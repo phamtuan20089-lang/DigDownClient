@@ -8,11 +8,9 @@ import net.minecraft.resources.Identifier;
 /**
  * Font riêng của DigDown (Baloo + Noto, định nghĩa trong assets/digdown/font/ui.json).
  * Mọi chữ của Click GUI và HUD đều đi qua UiFont.text().
+ * Có thể tắt trong Click GUI: tab SETTINGS, mục "Custom font".
  */
 public final class UiFont {
-    /** Đặt false để quay về font mặc định của Minecraft (ví dụ nếu font bị lỗi trên máy). */
-    public static boolean enabled = true;
-
     private static final Style STYLE = Style.EMPTY.withFont(
             new FontDescription.Resource(Identifier.fromNamespaceAndPath("digdown", "ui")));
 
@@ -20,6 +18,6 @@ public final class UiFont {
     }
 
     public static Component text(String s) {
-        return enabled ? Component.literal(s).withStyle(STYLE) : Component.literal(s);
+        return ClientSettings.CUSTOM_FONT.get() ? Component.literal(s).withStyle(STYLE) : Component.literal(s);
     }
 }

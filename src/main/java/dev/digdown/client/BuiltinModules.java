@@ -10,10 +10,28 @@ public final class BuiltinModules {
     private BuiltinModules() {
     }
 
+    /** Module HUD duy nhất: DigDownHud đọc trạng thái và các tùy chọn từ đây. */
+    public static Hud hud;
+
     public static void registerAll() {
         ModuleManager.register(new Sprint());
         ModuleManager.register(new AutoWalk());
         ModuleManager.register(new Fullbright());
+
+        hud = new Hud();
+        hud.setEnabled(true); // HUD bật sẵn
+        ModuleManager.register(hud);
+    }
+
+    /** Gom toàn bộ HUD thành một chức năng, các dòng hiển thị là tùy chọn con (bấm bánh răng để chỉnh). */
+    public static final class Hud extends Module {
+        public final BoolSetting showName = addSetting("Client name", "Show the DigDown label", true);
+        public final BoolSetting showFps = addSetting("FPS", "Show frames per second", true);
+        public final BoolSetting showCoords = addSetting("Coordinates", "Show your XYZ position", true);
+
+        public Hud() {
+            super("HUD", "Name, FPS and coordinates overlay", Category.CLIENT);
+        }
     }
 
     /** Tự chạy nhanh khi đang đi tiến. */

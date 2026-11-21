@@ -19,7 +19,8 @@ import net.minecraft.sounds.SoundEvents;
 
 /**
  * Click GUI của DigDown: tab trên cùng, danh mục bên trái, thanh tìm kiếm, thẻ module có công tắc.
- * Click trái vào thẻ để bật/tắt module. Click phải vào thẻ có tùy chọn con để mở tùy chọn đó.
+ * Click trái vào thẻ để bật/tắt module. Click phải vào thẻ có tùy chọn con để mở hoặc đóng
+ * phần tùy chọn ngay bên dưới thẻ.
  * Góc bo tròn, âm thanh tick, hoạt ảnh mở menu. Vẽ bằng GuiGraphics.
  */
 public class ClickGuiScreen extends Screen {
@@ -37,6 +38,7 @@ public class ClickGuiScreen extends Screen {
     private static final int CARD_H = 32;
     private static final int GAP = 6;
     private static final int BAR_H = 16;
+    private static final int SUB_INDENT = 14; // độ thụt vào của các tùy chọn con so với thẻ module
 
     // Độ bo góc (pixel)
     private static final int WINDOW_R = 14;
@@ -63,7 +65,7 @@ public class ClickGuiScreen extends Screen {
         }
     }
 
-    /** Một thẻ có công tắc. settingsOf != null thì click phải vào thẻ sẽ mở tùy chọn con của module đó. */
+    /** Một thẻ có công tắc. settingsOf != null thì click phải vào thẻ sẽ mở/đóng tùy chọn con ngay bên dưới. */
     private record Card(String name, String desc, BooleanSupplier state, Runnable toggle, Module settingsOf) {
     }
 
@@ -199,7 +201,7 @@ public class ClickGuiScreen extends Screen {
             int rx1 = x + 8;
             int rx2 = x + SIDEBAR - 6;
             for (Module.Category c : cats) {
-                boolean selected = c == currentCategory && openedModule == null
+                boolean selected = c == currentCategory
                         && (searchBox == null || searchBox.getValue().isEmpty());
                 boolean hover = inside(mouseX, mouseY, rx1, rowY, rx2, rowY + 22);
                 if (selected || hover) {
@@ -228,53 +230,39 @@ public class ClickGuiScreen extends Screen {
 
             // Thanh công cụ phía trên các thẻ: tìm kiếm / nút quay lại + bộ đếm
             String query = searchBox == null ? "" : searchBox.getValue().trim().toLowerCase(Locale.ROOT);
-            String rightLabel;
-            if (openedModule != null) {
-                for (Module.BoolSetting s : openedModule.getSettings()) {
-                    cards.add(new Card(s.getName(), s.getDescription(), s::get, s::toggle, null));
-                }
-                rightLabel = openedModule.getName().toUpperCase(Locale.ROOT) + " SETTINGS";
-
-                int bw = textWidth(font, "< BACK") + 16;
-                boolean hover = inside(mouseX, mouseY, contentLeft, top, contentLeft + bw, top + BAR_H);
-                fillRounded(g, contentLeft, top, contentLeft + bw, top + BAR_H, CARD_R,
-                        mul(hover ? CARD_HOVER : CARD));
-                drawText(g, font, "< BACK", contentLeft + 8, top + 4, mul(TEXT));
-                zones.add(new Zone(contentLeft, top, contentLeft + bw, top + BAR_H, () -> {
-                    openedModule = null;
-                    playClick(0.9F);
-                }));
+            List<Module> source = new ArrayList<>();
+            if (query.isEmpty()) {
+                source.addAll(ModuleManager.byCategory(currentCategory));
             } else {
-                List<Module> source = new ArrayList<>();
-                if (query.isEmpty()) {
-                    source.addAll(ModuleManager.byCategory(currentCategory));
-                } else {
-                    for (Module m : ModuleManager.all()) {
-                        if (m.getName().toLowerCase(Locale.ROOT).contains(query)) {
-                            source.add(m);
-                        }
+                for (Module m : ModuleManager.all()) {
+                    if (m.getName().toLowerCase(Locale.ROOT).contains(query)) {
+                        source.add(m);
                     }
                 }
-                for (Module m : source) {
-                    cards.add(new Card(m.getName(), m.getDescription(), m::isEnabled, m::toggle,
-                            m.getSettings().isEmpty() ? null : m));
-                }
-                rightLabel = cards.size() + (cards.size() == 1 ? " MODULE" : " MODULES");
-
-                // Thanh tìm kiếm
-                int barW = Math.max(60, Math.min(160, contentRight - contentLeft - 90));
-                boolean focused = searchBox != null && searchBox.isFocused();
-                fillRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(CARD));
-                if (focused) {
-                    strokeRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(ACCENT));
-                }
-                if (searchBox != null) {
-                    searchBox.setX(contentLeft + 8);
-                    searchBox.setY(top + 4);
-                    searchBox.setWidth(barW - 16);
-                }
-                searchVisible = true;
             }
+            // Module đang mở tùy chọn con nhưng không còn trong danh sách (do lọc hoặc đổi danh mục) thì đóng lại
+            if (openedModule != null && !source.contains(openedModule)) {
+                openedModule = null;
+            }
+            for (Module m : source) {
+                cards.add(new Card(m.getName(), m.getDescription(), m::isEnabled, m::toggle,
+                        m.getSettings().isEmpty() ? null : m));
+            }
+            String rightLabel = cards.size() + (cards.size() == 1 ? " MODULE" : " MODULES");
+
+            // Thanh tìm kiếm
+            int barW = Math.max(60, Math.min(160, contentRight - contentLeft - 90));
+            boolean focused = searchBox != null && searchBox.isFocused();
+            fillRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(CARD));
+            if (focused) {
+                strokeRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(ACCENT));
+            }
+            if (searchBox != null) {
+                searchBox.setX(contentLeft + 8);
+                searchBox.setY(top + 4);
+                searchBox.setWidth(barW - 16);
+            }
+            searchVisible = true;
 
             int rw = textWidth(font, rightLabel);
             drawText(g, font, rightLabel, contentRight - rw, top + 4, mul(DIM));
@@ -301,16 +289,55 @@ public class ClickGuiScreen extends Screen {
         g.drawString(font, UiFont.text("DIGDOWN"), -markWidth / 2, -4, mul(0x14FFFFFF));
         marker.popMatrix();
 
-        // Lưới thẻ 2 cột (1 cột nếu màn hình hẹp)
+        // Lưới thẻ 1 hoặc 2 cột. Module đang mở tùy chọn con được vẽ toàn chiều rộng, rồi đến
+        // từng tùy chọn con là một hàng riêng nằm ngay bên dưới, nối với module bằng một đường kẻ.
         int cols = (contentRight - contentLeft) >= 240 ? 2 : 1;
         int cardW = (contentRight - contentLeft - GAP * (cols - 1)) / cols;
-        for (int i = 0; i < cards.size(); i++) {
-            int cardX = contentLeft + (i % cols) * (cardW + GAP);
-            int cardY = top + (i / cols) * (CARD_H + GAP);
-            if (cardY + CARD_H > bottom) {
-                break;
+        int fullW = contentRight - contentLeft;
+        int cy = top;
+        int col = 0;
+        for (Card card : cards) {
+            boolean expanded = card.settingsOf() != null && card.settingsOf() == openedModule;
+            if (expanded) {
+                if (col != 0) { // hàng đang dở thì xuống hàng mới
+                    cy += CARD_H + GAP;
+                    col = 0;
+                }
+                if (cy + CARD_H > bottom) {
+                    break;
+                }
+                drawCard(g, font, card, contentLeft, cy, fullW, mouseX, mouseY);
+                int spineTop = cy + CARD_H;
+                cy += CARD_H + GAP;
+
+                int indentX = contentLeft + SUB_INDENT;
+                int rowW = contentRight - indentX;
+                int lastRowMid = -1;
+                for (Module.BoolSetting s : openedModule.getSettings()) {
+                    if (cy + CARD_H > bottom) {
+                        break;
+                    }
+                    Card row = new Card(s.getName(), s.getDescription(), s::get, s::toggle, null);
+                    drawCard(g, font, row, indentX, cy, rowW, mouseX, mouseY);
+                    lastRowMid = cy + CARD_H / 2;
+                    g.fill(contentLeft + 7, lastRowMid, indentX - 1, lastRowMid + 1, mul(LINE));
+                    cy += CARD_H + GAP;
+                }
+                if (lastRowMid > 0) {
+                    g.fill(contentLeft + 6, spineTop, contentLeft + 7, lastRowMid + 1, mul(LINE));
+                }
+            } else {
+                if (cy + CARD_H > bottom) {
+                    break;
+                }
+                int cardX = contentLeft + col * (cardW + GAP);
+                drawCard(g, font, card, cardX, cy, cardW, mouseX, mouseY);
+                col++;
+                if (col >= cols) {
+                    col = 0;
+                    cy += CARD_H + GAP;
+                }
             }
-            drawCard(g, font, cards.get(i), cardX, cardY, cardW, mouseX, mouseY);
         }
 
         pose.popMatrix();
@@ -344,12 +371,12 @@ public class ClickGuiScreen extends Screen {
             playClick(card.state().getAsBoolean() ? 1.3F : 0.8F);
         }));
 
-        // Click phải vào thẻ có tùy chọn con: mở tùy chọn đó
+        // Click phải vào thẻ có tùy chọn con: mở hoặc đóng phần tùy chọn ngay bên dưới thẻ
         if (card.settingsOf() != null) {
             final Module target = card.settingsOf();
             rightZones.add(new Zone(x, y, x + w, y + CARD_H, () -> {
-                openedModule = target;
-                playClick(1.1F);
+                openedModule = openedModule == target ? null : target;
+                playClick(openedModule == null ? 0.9F : 1.1F);
             }));
         }
     }

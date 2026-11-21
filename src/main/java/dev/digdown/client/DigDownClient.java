@@ -14,8 +14,6 @@ public final class DigDownClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         DigDownCore.init();
-        DigDownCore.init();
-        DigDownCore.init();
         LOGGER.info("DigDown Client initialized.");
         LOGGER.info("Default profile: PC");
     }

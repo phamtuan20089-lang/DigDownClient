@@ -4,7 +4,6 @@ import org.lwjgl.glfw.GLFW;
 
 import com.mojang.blaze3d.platform.InputConstants;
 
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
@@ -20,7 +19,6 @@ public final class DigDownCore {
 
     public static void init() {
         BuiltinModules.registerAll();
-        ConfigManager.load(); // khôi phục chức năng đang bật và các tùy chọn từ lần chơi trước
         DigDownHud.register();
 
         KeyMapping.Category category = KeyMapping.Category.register(
@@ -34,7 +32,6 @@ public final class DigDownCore {
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
                 category));
 
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> ConfigManager.save());
         ClientTickEvents.END_CLIENT_TICK.register(DigDownCore::onTick);
     }
 

@@ -23,7 +23,7 @@ public final class BuiltinModules {
         ModuleManager.register(hud);
     }
 
-    /** Gom toàn bộ HUD thành một chức năng, các dòng hiển thị là tùy chọn con (click phải vào HUD để chỉnh). */
+    /** Gom toàn bộ HUD thành một chức năng, các dòng hiển thị là tùy chọn con (bấm bánh răng để chỉnh). */
     public static final class Hud extends Module {
         public final BoolSetting showName = addSetting("Client name", "Show the DigDown label", true);
         public final BoolSetting showFps = addSetting("FPS", "Show frames per second", true);

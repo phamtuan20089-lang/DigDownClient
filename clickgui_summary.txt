@@ -1,0 +1,98 @@
+3:--- a/new-source/src/main/java/dev/digdown/client/ClickGuiScreen.java
+4:+++ b/src/main/java/dev/digdown/client/ClickGuiScreen.java
+5:@@ -1,34 +1,32 @@
+47:-public class ClickGuiScreen extends class_437 {
+48:+public class ClickGuiScreen extends Screen {
+52:+    private static final int BUTTON = 0xFF2E2347;
+56:@@ -40,38 +38,14 @@ public class ClickGuiScreen extends class_437 {
+60:-    private static final int SUB_INDENT = 14; // độ thụt vào của các tùy chọn con so với thẻ module
+63:-    private static final int WINDOW_R = 14;
+64:-    private static final int CARD_R = 8;
+65:+    private static final int WINDOW_R = 8;
+66:+    private static final int CARD_R = 4;
+72:-    private static final int DEFAULT_W = 420;
+73:-    private static final int DEFAULT_H = 250;
+74:-    private static final int MIN_W = 300;
+75:-    private static final int MIN_H = 180;
+76:-    private static final int GRIP = 14; // vùng kéo ở góc dưới bên phải
+79:-    private static final int WINDOW_BORDER = 0xFF3E3358;
+80:-    private static final int CARD_BORDER = 0xFF2E2446;
+83:-    private static final float K_HOVER = 14F;  // rê chuột
+84:-    private static final float K_TOGGLE = 16F; // bật/tắt, đổi tab, đổi danh mục
+85:-    private static final float K_MOVE = 14F;   // trượt vị trí
+86:-    private static final float K_FADE = 12F;   // hiện dần, mờ dần
+87:-    private static final float K_EXPAND = 10F; // mở/đóng tùy chọn con
+88:-    private static final float K_PULSE = 6F;   // nháy khi vừa bấm
+89:-    private static final float ENTER_DY = 10F; // phần tử mới trượt lên từ dưới bao nhiêu pixel
+92:-    private static final String CATEGORY = "category";
+97:@@ -90,24 +64,8 @@ public class ClickGuiScreen extends class_437 {
+105:-    private record Card(Object key, String name, String desc, BooleanSupplier state, Runnable toggle,
+113:-    private record Slot(Object key, Card card, float tx, float ty, float tw, float ta, Module clipOwner,
+118:-    private record Prop(Object owner, String name) {
+120:+    private record Card(String name, String desc, BooleanSupplier state, Runnable toggle, Module settingsOf) {
+124:@@ -115,58 +73,29 @@ public class ClickGuiScreen extends class_437 {
+128:-    private final List<Zone> rightZones = new ArrayList<>(); // vùng click phải (mở/đóng tùy chọn con)
+131:-    private Module openedModule; // module đang mở tùy chọn con (null = không mở)
+132:-    private class_342 searchBox;
+135:-    private static int winW = DEFAULT_W;
+136:-    private static int winH = DEFAULT_H;
+137:-    private static int posX = -1;
+138:-    private static int posY = -1;
+141:-    private boolean resizing;
+142:-    private boolean moving;
+143:-    private double dragStartX;
+144:-    private double dragStartY;
+145:-    private int dragStartW;
+146:-    private int dragStartH;
+147:-    private int dragOffX;
+148:-    private int dragOffY;
+151:-    private int lastX;
+152:-    private int lastY;
+153:-    private int lastW;
+154:-    private int lastH;
+157:-    private final Map<Prop, Float> props = new HashMap<>(); // giá trị hiện tại của từng thuộc tính
+158:-    private Map<Object, Card> alive = new LinkedHashMap<>(); // phần tử đã vẽ khung trước, để mờ dần khi biến mất
+159:-    private long lastFrameNs = System.nanoTime();
+160:-    private float dt = 1F / 60F; // thời gian giữa hai khung hình (giây)
+161:+    private Module openedModule; // module đang xem tùy chọn con (null = xem danh sách)
+162:+    private EditBox searchBox;
+171:-    protected void method_25426() {
+179:+    protected void init() {
+190:-    public boolean method_25421() {
+191:+    public boolean isPauseScreen() {
+195:@@ -179,34 +108,22 @@ public class ClickGuiScreen extends class_437 {
+199:-    public void method_25394(class_332 g, int mouseX, int mouseY, float partialTick) {
+200:+    public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+206:-        class_327 font = class_310.method_1551().field_1772;
+238:@@ -214,37 +131,27 @@ public class ClickGuiScreen extends class_437 {
+286:@@ -255,20 +162,19 @@ public class ClickGuiScreen extends class_437 {
+312:@@ -287,437 +193,209 @@ public class ClickGuiScreen extends class_437 {
+605:-    private void drawCell(class_332 g, class_327 font, Object key, Card card,
+628:+    private void drawCard(GuiGraphics g, Font font, Card card, int x, int y, int w, int mouseX, int mouseY) {
+704:-    public boolean method_25402(class_11909 event, boolean doubleClick) {
+705:+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+762:-    @Override
+763:-    public boolean method_25403(class_11909 event, double dragX, double dragY) {
+780:-    @Override
+781:-    public boolean method_25406(class_11909 event) {
+796:-    private float tween(Object owner, String name, float target, float k) {
+808:-    private void seed(Object owner, String name, float value) {
+812:-    private float prop(Object owner, String name) {
+817:-    private static int withAlpha(int argb, float a) {
+824:-    private static int lerpColor(int a, int b, float t) {
+836:-    private boolean hitGrip(double mx, double my) {
+842:-    private boolean hitHeader(double mx, double my) {
+846:-    private static int clamp(int v, int lo, int hi) {
+853:-    private static void drawText(class_332 g, class_327 font, String s, int x, int y, int color) {
+855:+    private static void drawText(GuiGraphics g, Font font, String s, int x, int y, int color) {
+859:-    private static int textWidth(class_327 font, String s) {
+861:+    private static int textWidth(Font font, String s) {
+866:-    private static String fit(class_327 font, String s, int maxWidth) {
+867:+    private static String fit(Font font, String s, int maxWidth) {
+871:@@ -735,11 +413,11 @@ public class ClickGuiScreen extends class_437 {
+875:-        class_310.method_1551().method_1483()
+886:@@ -767,44 +445,44 @@ public class ClickGuiScreen extends class_437 {
+890:-    private static void fillRounded(class_332 g, int x1, int y1, int x2, int y2, int r, int color) {
+891:+    private static void fillRounded(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int color) {
+910:-    private static void strokeRounded(class_332 g, int x1, int y1, int x2, int y2, int r, int color) {
+911:+    private static void strokeRounded(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int color) {

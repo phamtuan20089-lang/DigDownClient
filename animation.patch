@@ -1,0 +1,517 @@
+diff -ruN submenu_DigDownClient-main/src/main/java/dev/digdown/client/ClickGuiScreen.java src/DigDownClient-main/src/main/java/dev/digdown/client/ClickGuiScreen.java
+--- a/src/main/java/dev/digdown/client/ClickGuiScreen.java	2026-11-21 13:03:13.875200980 +0000
++++ b/src/main/java/dev/digdown/client/ClickGuiScreen.java	2026-11-21 13:04:19.176318571 +0000
+@@ -1,8 +1,11 @@
+ package dev.digdown.client;
+ 
+ import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Locale;
++import java.util.Map;
+ import java.util.function.BooleanSupplier;
+ 
+ import org.joml.Matrix3x2fStack;
+@@ -21,7 +24,8 @@
+  * Click GUI của DigDown: tab trên cùng, danh mục bên trái, thanh tìm kiếm, thẻ module có công tắc.
+  * Click trái vào thẻ để bật/tắt module. Click phải vào thẻ có tùy chọn con để mở hoặc đóng
+  * phần tùy chọn ngay bên dưới thẻ.
+- * Góc bo tròn, âm thanh tick, hoạt ảnh mở menu. Vẽ bằng GuiGraphics.
++ * Mọi thay đổi đều có hoạt ảnh làm mượt: bật/tắt, đổi tab, đổi danh mục, mở tùy chọn con,
++ * rê chuột, gõ tìm kiếm. Vẽ bằng GuiGraphics.
+  */
+ public class ClickGuiScreen extends Screen {
+     private static final int BG = 0xF010091A;
+@@ -47,6 +51,18 @@
+     // Thời gian hoạt ảnh mở menu (mili giây)
+     private static final long ANIM_MS = 220L;
+ 
++    // Tốc độ hoạt ảnh: càng lớn càng nhanh, khoảng 0,15 đến 0,3 giây là xong
++    private static final float K_HOVER = 14F;  // rê chuột
++    private static final float K_TOGGLE = 16F; // bật/tắt, đổi tab, đổi danh mục
++    private static final float K_MOVE = 14F;   // trượt vị trí
++    private static final float K_FADE = 12F;   // hiện dần, mờ dần
++    private static final float K_EXPAND = 10F; // mở/đóng tùy chọn con
++    private static final float K_PULSE = 6F;   // nháy khi vừa bấm
++    private static final float ENTER_DY = 10F; // phần tử mới trượt lên từ dưới bao nhiêu pixel
++
++    // Khóa cho các phần tử không phải module (dùng cho hoạt ảnh)
++    private static final String CATEGORY = "category";
++
+     private enum Tab {
+         MODULES("MODULES"),
+         SETTINGS("SETTINGS");
+@@ -65,8 +81,24 @@
+         }
+     }
+ 
+-    /** Một thẻ có công tắc. settingsOf != null thì click phải vào thẻ sẽ mở/đóng tùy chọn con ngay bên dưới. */
+-    private record Card(String name, String desc, BooleanSupplier state, Runnable toggle, Module settingsOf) {
++    /**
++     * Một thẻ có công tắc. key là đối tượng dùng làm khóa hoạt ảnh (module hoặc tùy chọn).
++     * settingsOf != null thì click phải vào thẻ sẽ mở/đóng tùy chọn con ngay bên dưới.
++     */
++    private record Card(Object key, String name, String desc, BooleanSupplier state, Runnable toggle,
++                        Module settingsOf) {
++    }
++
++    /**
++     * Một vị trí cần vẽ trong khung hình này: tọa độ đích, độ trong suốt đích và vùng cắt
++     * (clipOwner != null thì chỉ hiện phần cao clipH bên dưới thẻ của clipOwner, dùng cho tùy chọn con).
++     */
++    private record Slot(Object key, Card card, float tx, float ty, float tw, float ta, Module clipOwner,
++                        float clipH) {
++    }
++
++    /** Khóa của một giá trị hoạt ảnh: đối tượng sở hữu và tên thuộc tính. */
++    private record Prop(Object owner, String name) {
+     }
+ 
+     // static để lần sau mở lại vẫn nhớ tab/danh mục đang chọn
+@@ -74,12 +106,18 @@
+     private static Module.Category currentCategory = Module.Category.MOVEMENT;
+ 
+     private final List<Zone> zones = new ArrayList<>();
+-    private final List<Zone> rightZones = new ArrayList<>(); // vùng click phải (mở tùy chọn con)
++    private final List<Zone> rightZones = new ArrayList<>(); // vùng click phải (mở/đóng tùy chọn con)
+     private final long openedAt = System.currentTimeMillis();
+     private float fade = 1.0F;
+-    private Module openedModule; // module đang xem tùy chọn con (null = xem danh sách)
++    private Module openedModule; // module đang mở tùy chọn con (null = không mở)
+     private EditBox searchBox;
+ 
++    // ---- hoạt ảnh
++    private final Map<Prop, Float> props = new HashMap<>(); // giá trị hiện tại của từng thuộc tính
++    private Map<Object, Card> alive = new LinkedHashMap<>(); // phần tử đã vẽ khung trước, để mờ dần khi biến mất
++    private long lastFrameNs = System.nanoTime();
++    private float dt = 1F / 60F; // thời gian giữa hai khung hình (giây)
++
+     public ClickGuiScreen() {
+         super(Component.literal("DigDown"));
+         playClick(1.5F); // tiếng tick khi mở menu
+@@ -113,9 +151,12 @@
+     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+         zones.clear();
+         rightZones.clear();
++        long now = System.nanoTime();
++        dt = Math.min(0.05F, (now - lastFrameNs) / 1_000_000_000F);
++        lastFrameNs = now;
+         Font font = Minecraft.getInstance().font;
+ 
+-        // Tiến độ hoạt ảnh: 0 -> 1
++        // Tiến độ hoạt ảnh mở menu: 0 -> 1
+         float t = animationOn() ? Math.min(1.0F, (System.currentTimeMillis() - openedAt) / (float) ANIM_MS) : 1.0F;
+         fade = Math.min(1.0F, t * 1.6F);
+         float scale = 0.85F + 0.15F * easeOutBack(t);
+@@ -146,15 +187,18 @@
+         int tx = x + 34 + textWidth(font, "DIGDOWN") + 14;
+         for (Tab tab : Tab.values()) {
+             int tw = textWidth(font, tab.label) + 16;
+-            boolean active = tab == currentTab;
+-            boolean hover = inside(mouseX, mouseY, tx, y + 5, tx + tw, y + HEADER - 4);
+-            if (active || hover) {
+-                fillRounded(g, tx, y + 5, tx + tw, y + HEADER - 4, CARD_R, mul(active ? CARD_HOVER : CARD));
++            boolean hoverNow = inside(mouseX, mouseY, tx, y + 5, tx + tw, y + HEADER - 4);
++            float act = tween(tab, "act", currentTab == tab ? 1F : 0F, K_TOGGLE);
++            float hov = tween(tab, "hov", hoverNow ? 1F : 0F, K_HOVER);
++            float bgA = Math.max(act, hov);
++            if (bgA > 0.02F) {
++                fillRounded(g, tx, y + 5, tx + tw, y + HEADER - 4, CARD_R,
++                        mul(withAlpha(lerpColor(CARD, CARD_HOVER, act), bgA)));
+             }
+-            if (active) {
+-                strokeRounded(g, tx, y + 5, tx + tw, y + HEADER - 4, CARD_R, mul(ACCENT));
++            if (act > 0.02F) {
++                strokeRounded(g, tx, y + 5, tx + tw, y + HEADER - 4, CARD_R, mul(withAlpha(ACCENT, act)));
+             }
+-            drawText(g, font, tab.label, tx + 8, y + 11, mul(active ? TEXT : DIM));
++            drawText(g, font, tab.label, tx + 8, y + 11, mul(lerpColor(DIM, TEXT, act)));
+             final Tab target = tab;
+             zones.add(new Zone(tx, y + 5, tx + tw, y + HEADER - 4, () -> {
+                 currentTab = target;
+@@ -165,8 +209,9 @@
+         }
+ 
+         int closeX = x + w - 22;
+-        fillRounded(g, closeX, y + 8, closeX + 14, y + 22, 7,
+-                mul(inside(mouseX, mouseY, closeX, y + 8, closeX + 14, y + 22) ? CARD_HOVER : CARD));
++        boolean closeHoverNow = inside(mouseX, mouseY, closeX, y + 8, closeX + 14, y + 22);
++        float closeT = tween("close", "hov", closeHoverNow ? 1F : 0F, K_HOVER);
++        fillRounded(g, closeX, y + 8, closeX + 14, y + 22, 7, mul(lerpColor(CARD, CARD_HOVER, closeT)));
+         drawText(g, font, "x", closeX + (14 - textWidth(font, "x")) / 2, y + 11, mul(DIM));
+         zones.add(new Zone(closeX, y + 8, closeX + 14, y + 22, () -> {
+             playClick(0.8F);
+@@ -196,23 +241,34 @@
+             if (!cats.isEmpty() && !cats.contains(currentCategory)) {
+                 currentCategory = cats.get(0);
+             }
+-
+-            int rowY = bodyTop + 8;
++            boolean searchEmpty = searchBox == null || searchBox.getValue().isEmpty();
++            int selIndex = cats.indexOf(currentCategory);
+             int rx1 = x + 8;
+             int rx2 = x + SIDEBAR - 6;
++
++            // Khung sáng của danh mục đang chọn trượt mượt sang danh mục mới
++            float indY = tween(CATEGORY, "y", bodyTop + 8 + Math.max(0, selIndex) * 26F, K_MOVE);
++            float indA = tween(CATEGORY, "a", searchEmpty && selIndex >= 0 ? 1F : 0F, K_FADE);
++            if (indA > 0.02F) {
++                fillRounded(g, rx1, Math.round(indY), rx2, Math.round(indY) + 22, CARD_R,
++                        mul(withAlpha(CARD_HOVER, indA)));
++                strokeRounded(g, rx1, Math.round(indY), rx2, Math.round(indY) + 22, CARD_R,
++                        mul(withAlpha(ACCENT, indA)));
++            }
++
++            int rowY = bodyTop + 8;
+             for (Module.Category c : cats) {
+-                boolean selected = c == currentCategory
+-                        && (searchBox == null || searchBox.getValue().isEmpty());
+-                boolean hover = inside(mouseX, mouseY, rx1, rowY, rx2, rowY + 22);
+-                if (selected || hover) {
+-                    fillRounded(g, rx1, rowY, rx2, rowY + 22, CARD_R, mul(selected ? CARD_HOVER : CARD));
+-                }
+-                if (selected) {
+-                    strokeRounded(g, rx1, rowY, rx2, rowY + 22, CARD_R, mul(ACCENT));
++                boolean selected = c == currentCategory && searchEmpty;
++                boolean hoverNow = inside(mouseX, mouseY, rx1, rowY, rx2, rowY + 22);
++                float hovT = tween(c, "hov", hoverNow ? 1F : 0F, K_HOVER);
++                float selT = tween(c, "sel", selected ? 1F : 0F, K_TOGGLE);
++                float bgA = hovT * (1F - selT);
++                if (bgA > 0.02F) {
++                    fillRounded(g, rx1, rowY, rx2, rowY + 22, CARD_R, mul(withAlpha(CARD, bgA)));
+                 }
+-                fillRounded(g, rx1 + 8, rowY + 7, rx1 + 16, rowY + 15, 4, mul(selected ? ACCENT : DIM));
++                fillRounded(g, rx1 + 8, rowY + 7, rx1 + 16, rowY + 15, 4, mul(lerpColor(DIM, ACCENT, selT)));
+                 drawText(g, font, c.label().toUpperCase(Locale.ROOT), rx1 + 22, rowY + 7,
+-                        mul(selected ? TEXT : DIM));
++                        mul(lerpColor(DIM, TEXT, selT)));
+                 final Module.Category target = c;
+                 zones.add(new Zone(rx1, rowY, rx2, rowY + 22, () -> {
+                     currentCategory = target;
+@@ -228,7 +284,7 @@
+             g.fill(x + SIDEBAR, bodyTop + 4, x + SIDEBAR + 1, y + h - 8, mul(LINE));
+             contentLeft = x + SIDEBAR + 10;
+ 
+-            // Thanh công cụ phía trên các thẻ: tìm kiếm / nút quay lại + bộ đếm
++            // Danh sách module: theo danh mục, hoặc tìm kiếm trên tất cả module
+             String query = searchBox == null ? "" : searchBox.getValue().trim().toLowerCase(Locale.ROOT);
+             List<Module> source = new ArrayList<>();
+             if (query.isEmpty()) {
+@@ -240,22 +296,24 @@
+                     }
+                 }
+             }
+-            // Module đang mở tùy chọn con nhưng không còn trong danh sách (do lọc hoặc đổi danh mục) thì đóng lại
++            // Module đang mở tùy chọn con nhưng không còn trong danh sách thì đóng lại
+             if (openedModule != null && !source.contains(openedModule)) {
+                 openedModule = null;
+             }
+             for (Module m : source) {
+-                cards.add(new Card(m.getName(), m.getDescription(), m::isEnabled, m::toggle,
++                cards.add(new Card(m, m.getName(), m.getDescription(), m::isEnabled, m::toggle,
+                         m.getSettings().isEmpty() ? null : m));
+             }
+             String rightLabel = cards.size() + (cards.size() == 1 ? " MODULE" : " MODULES");
+ 
+-            // Thanh tìm kiếm
++            // Thanh tìm kiếm: viền sáng dần khi đang gõ
+             int barW = Math.max(60, Math.min(160, contentRight - contentLeft - 90));
+             boolean focused = searchBox != null && searchBox.isFocused();
++            float focusT = tween("search", "focus", focused ? 1F : 0F, K_TOGGLE);
+             fillRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(CARD));
+-            if (focused) {
+-                strokeRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R, mul(ACCENT));
++            if (focusT > 0.02F) {
++                strokeRounded(g, contentLeft, top, contentLeft + barW, top + BAR_H, CARD_R,
++                        mul(withAlpha(ACCENT, focusT)));
+             }
+             if (searchBox != null) {
+                 searchBox.setX(contentLeft + 8);
+@@ -269,7 +327,7 @@
+             top += BAR_H + 8;
+         } else {
+             for (Module.BoolSetting s : ClientSettings.all()) {
+-                cards.add(new Card(s.getName(), s.getDescription(), s::get, s::toggle, null));
++                cards.add(new Card(s, s.getName(), s.getDescription(), s::get, s::toggle, null));
+             }
+         }
+ 
+@@ -289,16 +347,19 @@
+         g.drawString(font, UiFont.text("DIGDOWN"), -markWidth / 2, -4, mul(0x14FFFFFF));
+         marker.popMatrix();
+ 
+-        // Lưới thẻ 1 hoặc 2 cột. Module đang mở tùy chọn con được vẽ toàn chiều rộng, rồi đến
+-        // từng tùy chọn con là một hàng riêng nằm ngay bên dưới, nối với module bằng một đường kẻ.
++        // ---- Bố cục: tính vị trí đích của từng phần tử. Phần hiển thị sẽ trượt tới vị trí này.
++        // Module đang mở (hoặc đang đóng dần) được vẽ toàn chiều rộng, các tùy chọn con là hàng
++        // riêng nằm ngay bên dưới. Chiều cao vùng tùy chọn con tăng/giảm theo độ mở.
+         int cols = (contentRight - contentLeft) >= 240 ? 2 : 1;
+-        int cardW = (contentRight - contentLeft - GAP * (cols - 1)) / cols;
+-        int fullW = contentRight - contentLeft;
+-        int cy = top;
++        float cardW = (contentRight - contentLeft - GAP * (cols - 1)) / (float) cols;
++        float fullW = contentRight - contentLeft;
++        List<Slot> slots = new ArrayList<>();
++        float cy = top;
+         int col = 0;
+         for (Card card : cards) {
+-            boolean expanded = card.settingsOf() != null && card.settingsOf() == openedModule;
+-            if (expanded) {
++            Module mod = card.settingsOf();
++            float exp = mod == null ? 0F : tween(mod, "exp", mod == openedModule ? 1F : 0F, K_EXPAND);
++            if (exp > 0.002F) {
+                 if (col != 0) { // hàng đang dở thì xuống hàng mới
+                     cy += CARD_H + GAP;
+                     col = 0;
+@@ -306,32 +367,26 @@
+                 if (cy + CARD_H > bottom) {
+                     break;
+                 }
+-                drawCard(g, font, card, contentLeft, cy, fullW, mouseX, mouseY);
+-                int spineTop = cy + CARD_H;
+-                cy += CARD_H + GAP;
+-
+-                int indentX = contentLeft + SUB_INDENT;
+-                int rowW = contentRight - indentX;
+-                int lastRowMid = -1;
+-                for (Module.BoolSetting s : openedModule.getSettings()) {
+-                    if (cy + CARD_H > bottom) {
++                slots.add(new Slot(card.key(), card, contentLeft, cy, fullW, 1F, null, 0F));
++                float rowsTop = cy + CARD_H + GAP;
++                float regionH = mod.getSettings().size() * (CARD_H + GAP) * exp;
++                int idx = 0;
++                for (Module.BoolSetting s : mod.getSettings()) {
++                    float ry = rowsTop + idx * (CARD_H + GAP);
++                    idx++;
++                    if (ry + CARD_H > bottom) {
+                         break;
+                     }
+-                    Card row = new Card(s.getName(), s.getDescription(), s::get, s::toggle, null);
+-                    drawCard(g, font, row, indentX, cy, rowW, mouseX, mouseY);
+-                    lastRowMid = cy + CARD_H / 2;
+-                    g.fill(contentLeft + 7, lastRowMid, indentX - 1, lastRowMid + 1, mul(LINE));
+-                    cy += CARD_H + GAP;
+-                }
+-                if (lastRowMid > 0) {
+-                    g.fill(contentLeft + 6, spineTop, contentLeft + 7, lastRowMid + 1, mul(LINE));
++                    slots.add(new Slot(s, new Card(s, s.getName(), s.getDescription(), s::get, s::toggle, null),
++                            contentLeft + SUB_INDENT, ry, contentRight - contentLeft - SUB_INDENT, exp, mod,
++                            regionH));
+                 }
++                cy = rowsTop + regionH;
+             } else {
+                 if (cy + CARD_H > bottom) {
+                     break;
+                 }
+-                int cardX = contentLeft + col * (cardW + GAP);
+-                drawCard(g, font, card, cardX, cy, cardW, mouseX, mouseY);
++                slots.add(new Slot(card.key(), card, contentLeft + col * (cardW + GAP), cy, cardW, 1F, null, 0F));
+                 col++;
+                 if (col >= cols) {
+                     col = 0;
+@@ -340,44 +395,113 @@
+             }
+         }
+ 
++        // ---- Vẽ: mỗi phần tử trượt và hiện dần tới vị trí đích
++        Map<Object, Card> next = new LinkedHashMap<>();
++        for (Slot s : slots) {
++            seed(s.key(), "x", s.tx());
++            seed(s.key(), "y", s.ty() + ENTER_DY);
++            seed(s.key(), "w", s.tw());
++            seed(s.key(), "a", 0F);
++            float px = tween(s.key(), "x", s.tx(), K_MOVE);
++            float py = tween(s.key(), "y", s.ty(), K_MOVE);
++            float pw = tween(s.key(), "w", s.tw(), K_MOVE);
++            float pa = tween(s.key(), "a", s.ta(), K_FADE);
++            if (s.clipOwner() == null) {
++                drawCell(g, font, s.key(), s.card(), px, py, pw, pa, true, mouseX, mouseY);
++            } else {
++                // Tùy chọn con được cắt theo chiều cao đang mở, nên mở/đóng trông như kéo rèm
++                float clipTop = prop(s.clipOwner(), "y") + CARD_H + GAP;
++                g.enableScissor(Math.round(contentLeft), Math.round(clipTop),
++                        Math.round(contentRight), Math.round(clipTop + s.clipH()));
++                drawCell(g, font, s.key(), s.card(), px, py, pw, pa, true, mouseX, mouseY);
++                if (pa > 0.02F) {
++                    int railX = Math.round(px) - 6;
++                    g.fill(railX, Math.round(py) + 6, railX + 2, Math.round(py) + CARD_H - 6,
++                            mul(withAlpha(LINE, pa)));
++                }
++                g.disableScissor();
++            }
++            next.put(s.key(), s.card());
++        }
++
++        // Phần tử vừa biến mất (đổi tab, đổi danh mục, lọc, đóng tùy chọn): mờ dần tại chỗ cũ
++        for (Map.Entry<Object, Card> e : alive.entrySet()) {
++            Object key = e.getKey();
++            if (next.containsKey(key)) {
++                continue;
++            }
++            float pa = tween(key, "a", 0F, K_FADE);
++            if (pa > 0.02F) {
++                drawCell(g, font, key, e.getValue(), prop(key, "x"), prop(key, "y"), prop(key, "w"), pa,
++                        false, mouseX, mouseY);
++                next.put(key, e.getValue());
++            }
++        }
++        alive = next;
++
+         pose.popMatrix();
+         super.render(g, mouseX, mouseY, partialTick);
+     }
+ 
+-    private void drawCard(GuiGraphics g, Font font, Card card, int x, int y, int w, int mouseX, int mouseY) {
+-        boolean on = card.state().getAsBoolean();
+-        boolean hover = inside(mouseX, mouseY, x, y, x + w, y + CARD_H);
+-
+-        fillRounded(g, x, y, x + w, y + CARD_H, CARD_R, mul(hover ? CARD_HOVER : CARD));
+-        if (on) {
+-            strokeRounded(g, x, y, x + w, y + CARD_H, CARD_R, mul(ACCENT));
++    /**
++     * Vẽ một thẻ (hoặc hàng tùy chọn con) tại vị trí (fx, fy) rộng fw, độ trong suốt a.
++     * Công tắc, viền, nền và núm đều đổi mượt theo trạng thái. Chỉ thẻ đang hiện mới được bấm.
++     */
++    private void drawCell(GuiGraphics g, Font font, Object key, Card card,
++                          float fx, float fy, float fw, float a, boolean interactive, int mouseX, int mouseY) {
++        if (a < 0.02F) {
++            return;
+         }
++        int x1 = Math.round(fx);
++        int y1 = Math.round(fy);
++        int x2 = Math.round(fx + fw);
++        int y2 = y1 + CARD_H;
++
++        boolean hoverNow = interactive && inside(mouseX, mouseY, x1, y1, x2, y2);
++        float hover = tween(key, "hover", hoverNow ? 1F : 0F, K_HOVER);
++        float onT = tween(key, "on", card.state().getAsBoolean() ? 1F : 0F, K_TOGGLE);
++        float pulse = tween(key, "pulse", 0F, K_PULSE);
++
++        // Nền đổi màu mượt khi rê chuột, sáng nhẹ rồi tắt khi vừa bấm
++        fillRounded(g, x1, y1, x2, y2, CARD_R, mul(withAlpha(lerpColor(CARD, CARD_HOVER, hover), a)));
++        if (pulse * a > 0.02F) {
++            fillRounded(g, x1, y1, x2, y2, CARD_R, mul(withAlpha(ACCENT, a * pulse * 0.12F)));
++        }
++
++        // Viền sáng: hiện dần khi bật, nháy khi vừa bấm
++        float ring = Math.max(onT, pulse);
++        if (ring * a > 0.02F) {
++            strokeRounded(g, x1, y1, x2, y2, CARD_R, mul(withAlpha(ACCENT, a * ring)));
++        }
++
++        // Công tắc: màu và núm trượt mượt, núm phình nhẹ ở giữa lúc chuyển
++        int sx = x2 - 30;
++        int sy = y1 + (CARD_H - 10) / 2;
++        fillRounded(g, sx, sy, sx + 22, sy + 10, 5, mul(withAlpha(lerpColor(SWITCH_OFF, ACCENT, onT), a)));
++        int kw = 8 + Math.round(8F * onT * (1F - onT));
++        int kx = Math.round(sx + 1 + 12 * onT) + (8 - kw) / 2;
++        fillRounded(g, kx, sy + 1, kx + kw, sy + 9, 4, mul(withAlpha(TEXT, a)));
+ 
+-        // Công tắc bo tròn
+-        int sx = x + w - 30;
+-        int sy = y + (CARD_H - 10) / 2;
++        // Chữ
++        int textLeft = x1 + 8;
+         int textRight = sx - 6;
+-
+-        drawText(g, font, card.name(), x + 8, y + 7, mul(TEXT));
+-        drawText(g, font, fit(font, card.desc(), textRight - (x + 8)), x + 8, y + 19, mul(DIM));
+-
+-        fillRounded(g, sx, sy, sx + 22, sy + 10, 5, mul(on ? ACCENT : SWITCH_OFF));
+-        int knobX = on ? sx + 13 : sx + 1;
+-        fillRounded(g, knobX, sy + 1, knobX + 8, sy + 9, 4, mul(TEXT));
+-
+-        // Bấm vào thẻ: đổi trạng thái rồi phát tiếng tick (cao khi bật, trầm khi tắt)
+-        zones.add(new Zone(x, y, x + w, y + CARD_H, () -> {
+-            card.toggle().run();
+-            playClick(card.state().getAsBoolean() ? 1.3F : 0.8F);
+-        }));
+-
+-        // Click phải vào thẻ có tùy chọn con: mở hoặc đóng phần tùy chọn ngay bên dưới thẻ
+-        if (card.settingsOf() != null) {
+-            final Module target = card.settingsOf();
+-            rightZones.add(new Zone(x, y, x + w, y + CARD_H, () -> {
+-                openedModule = openedModule == target ? null : target;
+-                playClick(openedModule == null ? 0.9F : 1.1F);
++        drawText(g, font, card.name(), textLeft, y1 + 7, mul(withAlpha(TEXT, a)));
++        drawText(g, font, fit(font, card.desc(), textRight - textLeft), textLeft, y1 + 19,
++                mul(withAlpha(DIM, a)));
++
++        if (interactive && a > 0.5F) {
++            zones.add(new Zone(x1, y1, x2, y2, () -> {
++                card.toggle().run();
++                props.put(new Prop(key, "pulse"), 1F);
++                playClick(card.state().getAsBoolean() ? 1.3F : 0.8F);
+             }));
++            if (card.settingsOf() != null) {
++                final Module target = card.settingsOf();
++                rightZones.add(new Zone(x1, y1, x2, y2, () -> {
++                    openedModule = openedModule == target ? null : target;
++                    playClick(openedModule == null ? 0.9F : 1.1F);
++                }));
++            }
+         }
+     }
+ 
+@@ -413,6 +537,51 @@
+         return super.mouseClicked(event, doubleClick);
+     }
+ 
++    // ---------------------------------------------------------------- hoạt ảnh
++
++    /**
++     * Làm mượt giá trị hiện tại về target theo hàm mũ, k càng lớn thì càng nhanh.
++     * Lần đầu gặp thuộc tính thì đặt thẳng vào target, không chạy hoạt ảnh.
++     */
++    private float tween(Object owner, String name, float target, float k) {
++        Prop p = new Prop(owner, name);
++        float cur = props.getOrDefault(p, target);
++        float next = cur + (target - cur) * (1F - (float) Math.exp(-k * dt));
++        if (Math.abs(target - next) < 0.002F) {
++            next = target;
++        }
++        props.put(p, next);
++        return next;
++    }
++
++    /** Đặt giá trị bắt đầu cho phần tử mới xuất hiện (không ghi đè nếu đã có). */
++    private void seed(Object owner, String name, float value) {
++        props.putIfAbsent(new Prop(owner, name), value);
++    }
++
++    private float prop(Object owner, String name) {
++        return props.getOrDefault(new Prop(owner, name), 0F);
++    }
++
++    /** Đổi độ trong suốt của màu, a từ 0 (trong suốt) đến 1 (giữ nguyên). */
++    private static int withAlpha(int argb, float a) {
++        int base = argb >>> 24;
++        int na = Math.round(base * Math.max(0F, Math.min(1F, a)));
++        return (na << 24) | (argb & 0x00FFFFFF);
++    }
++
++    /** Trộn hai màu: t = 0 ra màu a, t = 1 ra màu b. */
++    private static int lerpColor(int a, int b, float t) {
++        float k = Math.max(0F, Math.min(1F, t));
++        int out = 0;
++        for (int shift = 24; shift >= 0; shift -= 8) {
++            int ca = (a >>> shift) & 0xFF;
++            int cb = (b >>> shift) & 0xFF;
++            out |= (Math.round(ca + (cb - ca) * k) & 0xFF) << shift;
++        }
++        return out;
++    }
++
+     // ---------------------------------------------------------------- chữ (font DigDown)
+ 
+     private static void drawText(GuiGraphics g, Font font, String s, int x, int y, int color) {
+@@ -446,7 +615,7 @@
+                 .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, pitch));
+     }
+ 
+-    /** Nhân độ trong suốt của màu với hệ số mờ dần của hoạt ảnh. */
++    /** Nhân độ trong suốt của màu với hệ số mờ dần của hoạt ảnh mở menu. */
+     private int mul(int argb) {
+         int a = (int) ((argb >>> 24) * fade);
+         if (a < 8) {
